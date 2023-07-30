@@ -13,9 +13,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (xy *Server) ReplayRequest(snapshot *fiber.Ctx) error {
+func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile core.Proxyfile, path core.ProxyPath) error {
+	if !path.EnableReplay || !xy.Proxyfile.Annotations.ReplayRequestsEnabled {
+		return nil
+	}
+
 	reqTime := time.Now()
-	duration := time.Duration(time.Now().Sub(reqTime))
+	duration := time.Duration(time.Since(reqTime))
 
 	headers := map[string][]string{}
 	for k, v := range snapshot.GetReqHeaders() {
@@ -23,9 +27,7 @@ func (xy *Server) ReplayRequest(snapshot *fiber.Ctx) error {
 	}
 
 	for _, h := range xy.Proxyfile.HTTPReplaySettings().SuppressHeaders {
-		if _, ok := headers[h.Name]; ok {
-			delete(headers, h.Name)
-		}
+		delete(headers, h.Name)
 	}
 
 	host := xy.Proxyfile.HTTPReplaySettings().Host + func() string {
@@ -36,7 +38,7 @@ func (xy *Server) ReplayRequest(snapshot *fiber.Ctx) error {
 		return ""
 	}()
 
-	requestURL, err := url.Parse(host + snapshot.Path())
+	requestURL, err := url.Parse(xy.Proxyfile.HTTPReplaySettings().Scheme + "://" + host + snapshot.Path())
 	if err != nil {
 		logger.Logger.WithFields(logrus.Fields{
 			"request.id": snapshot.GetRespHeader(core.ProxyConfig.HTTPRequestIdHeader),
@@ -47,20 +49,29 @@ func (xy *Server) ReplayRequest(snapshot *fiber.Ctx) error {
 		return err
 	}
 
-	// TODO: Perform replay...
+	// Perform replay...
 
-	_ = http.Request{
+	res, err := http.DefaultClient.Do(&http.Request{
 		Method: snapshot.Method(),
 		Header: headers,
 		URL:    requestURL,
 		Body:   &core.RequestBody{Data: snapshot.Body()},
+	})
+
+	if err != nil {
+		return err
 	}
+
+	status := res.StatusCode
+	defer res.Body.Close()
 
 	logger.Logger.WithFields(logrus.Fields{
 		"request.id": snapshot.GetRespHeader(core.ProxyConfig.HTTPRequestIdHeader),
 		"duration":   duration.Nanoseconds(),
 		"url":        requestURL.String(),
+		"status":     status,
+		"error":      err,
 	}).Info("Replayed HTTP request ⏪")
 
-	return err
+	return nil
 }

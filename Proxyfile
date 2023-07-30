@@ -18,8 +18,11 @@ spec:
       http:
         port: 5000
         replay:
+          scheme: http
           host: localhost
-          port: 8090
+          port: 8000
+          pathRewriteSettings:
+            strategy: suppress
           suppressHeaders:
             - name: "Authorization"
             - name: "X-Request-Id"

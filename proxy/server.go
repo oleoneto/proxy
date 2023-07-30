@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +12,8 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/sirupsen/logrus"
+
+	_ "net/http/pprof"
 )
 
 type Host struct{ Fiber *fiber.App }
@@ -112,9 +113,7 @@ func (xy *Server) RegisterRule(rule core.ProxyRule) {
 
 		app.All(routerPath, func(c *fiber.Ctx) error {
 			defer func() {
-				if xy.Proxyfile.Annotations.ReplayRequestsEnabled && path.EnableReplay {
-					xy.ReplayRequest(c)
-				}
+				go xy.ReplayRequest(*c, xy.Proxyfile, path)
 			}()
 
 			response, err := xy.MakeHTTPRequest(c, path)
@@ -135,35 +134,6 @@ func (xy *Server) RegisterRule(rule core.ProxyRule) {
 			"tls":      path.TLS,
 		}).Debug("Registered route")
 	}
-}
-
-func (xy *Server) MakeHTTPRequest(c *fiber.Ctx, path core.ProxyPath) (*http.Response, error) {
-	downstreamURL := path.RequestURL(c.Hostname(), c.Path())
-
-	if downstreamURL == nil {
-		return nil, errors.New(`invalid/unknown downstream url`)
-	}
-
-	logger.Logger.
-		WithFields(logrus.Fields{"method": c.Method(), "url": downstreamURL.RequestURI(), "tls": path.TLS}).
-		Info("Sending HTTP request 📡")
-
-	headers := map[string][]string{}
-	for k, v := range c.GetReqHeaders() {
-		headers[k] = strings.Split(v, ",")
-	}
-
-	request := http.Request{
-		Method: c.Method(),
-		Header: headers,
-		URL:    downstreamURL,
-	}
-
-	if len(c.Body()) > 0 {
-		request.Body = &core.RequestBody{Data: c.Body()}
-	}
-
-	return http.DefaultClient.Do(&request)
 }
 
 func (xy *Server) Get(hostname string) *Host { return xy.Hosts[normalizedHostname(hostname)] }

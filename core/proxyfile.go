@@ -5,6 +5,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type PathRewriteStrategy string
+
+const PreservePathStrategy string = "preserve"
+const RewritePathStrategy string = "rewrite"
+const SuppressPathStrategy string = "suppress"
+
 type (
 	// Proxy configuration.
 	Proxyfile struct {
@@ -50,12 +56,19 @@ type (
 
 	// Controls where and how HTTP requests are replayed
 	Replay struct {
+		// Replayed requests will be sent using this protocol [http/https]
+		Scheme string `yaml:"scheme"`
 		// Replayed requests will be sent to this host.
 		Host string `yaml:"host"`
 		// Replayed requests will be sent to this port.
 		Port int `yaml:"port"`
 		// Replayed requests will not include these headers.
 		SuppressHeaders []struct{ Name string } `yaml:"suppressHeaders"`
+		// Controls whether the original request path should be preserved
+		PathRewriteSettings struct {
+			Strategy PathRewriteStrategy
+			Options  string
+		} `yaml:"pathRewriteSettings"`
 	}
 )
 
@@ -68,6 +81,10 @@ func LoadProxyConfiguration(file []byte) (proxyfile Proxyfile, err error) {
 	err = yaml.Unmarshal(file, &proxyfile)
 	if proxyfile.Annotations.HTTPRequestIdHeader == "" {
 		proxyfile.Annotations.HTTPRequestIdHeader = ProxyConfig.HTTPRequestIdHeader
+	}
+
+	if proxyfile.HTTPReplaySettings().Scheme == "" {
+		proxyfile.Spec.Server.HTTP.Replay.Scheme = "http"
 	}
 
 	if proxyfile.HTTPPort() == 0 {
