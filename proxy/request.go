@@ -36,5 +36,5 @@ func (xy *Server) MakeHTTPRequest(c *fiber.Ctx, path ProxyPath) (*http.Response,
 		request.Body = &RequestBody{Data: c.Body()}
 	}
 
-	return http.DefaultClient.Do(&request)
+	return HTTPClient.Do(&request)
 }

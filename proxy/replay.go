@@ -79,7 +79,7 @@ func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile Proxyfile, path Pr
 		"remote_ip": snapshot.Context().RemoteIP(),
 	})
 
-	res, err := http.DefaultClient.Do(&http.Request{
+	res, err := HTTPClient.Do(&http.Request{
 		Method: method,
 		Header: headers,
 		URL:    requestURL,
