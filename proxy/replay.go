@@ -5,31 +5,32 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/cleopatrio/proxy/logger"
-	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 )
 
-func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile Proxyfile, path ProxyPath) error {
-	if !path.EnableReplay || !xy.Proxyfile.ReplayEnabled() {
+type ReplayRequest struct {
+	RequestPath string
+	MatchedPath ProxyPath
+	Method      string
+	Body        []byte
+	Headers     map[string][]string
+}
+
+func (xy *Server) ReplayRequest(snapshot ReplayRequest) error {
+	if !snapshot.MatchedPath.EnableReplay || !xy.Proxyfile.ReplayEnabled() {
 		return nil
 	}
 
 	reqTime := time.Now()
 	duration := time.Duration(time.Since(reqTime))
 
-	headers := map[string][]string{}
-	for k, v := range snapshot.GetReqHeaders() {
-		headers[k] = strings.Split(v, ",")
-	}
-
-	headers["Content-Type"] = []string{"application/json"}
+	snapshot.Headers["Content-Type"] = []string{"application/json"}
 
 	for _, h := range xy.Proxyfile.ReplayConfig().SuppressedHeaders {
-		delete(headers, h.Name)
+		delete(snapshot.Headers, h.Name)
 	}
 
 	host := xy.Proxyfile.ReplayConfig().Host + func() string {
@@ -47,14 +48,14 @@ func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile Proxyfile, path Pr
 		case SuppressPathStrategy:
 			return ""
 		default:
-			return snapshot.Path()
+			return snapshot.RequestPath
 		}
 	}()
 
 	requestURL, err := url.Parse(xy.Proxyfile.ReplayConfig().Scheme + "://" + host + reqPath)
 	if err != nil {
 		logger.Logger.WithFields(logrus.Fields{
-			"request.id": snapshot.GetRespHeader(PxFile.Annotations.HTTPRequestIdHeader),
+			"request.id": snapshot.Headers[PxFile.Annotations.HTTPRequestIdHeader],
 			"url":        requestURL,
 			"error":      err,
 		}).Error("Invalid replay URL ❌")
@@ -67,21 +68,21 @@ func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile Proxyfile, path Pr
 		case RewriteMethodStrategy:
 			return xy.Proxyfile.ReplayConfig().MethodRewriteSettings.Method
 		default:
-			return snapshot.Method()
+			return snapshot.Method
 		}
 	}()
 
 	data, _ := json.Marshal(map[string]any{
-		"body":      snapshot.Body(),
-		"path":      snapshot.Path(),
-		"method":    snapshot.Method(),
-		"headers":   snapshot.GetReqHeaders(),
-		"remote_ip": snapshot.Context().RemoteIP(),
+		"body":    snapshot.Body,
+		"path":    snapshot.RequestPath,
+		"method":  snapshot.Method,
+		"headers": snapshot.Headers,
+		// "remote_ip": snapshot.Context().RemoteIP(),
 	})
 
 	res, err := HTTPClient.Do(&http.Request{
 		Method: method,
-		Header: headers,
+		Header: snapshot.Headers,
 		URL:    requestURL,
 		Body:   &RequestBody{Data: data},
 	})
@@ -89,7 +90,7 @@ func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile Proxyfile, path Pr
 	status := -1
 	if err != nil {
 		logger.Logger.WithFields(logrus.Fields{
-			"request.id": snapshot.GetRespHeader(PxFile.Annotations.HTTPRequestIdHeader),
+			"request.id": snapshot.Headers[PxFile.Annotations.HTTPRequestIdHeader],
 			"url":        requestURL,
 			"method":     method,
 			"error":      err,
@@ -104,7 +105,7 @@ func (xy *Server) ReplayRequest(snapshot fiber.Ctx, proxyfile Proxyfile, path Pr
 	fmt.Println(string(data))
 
 	logger.Logger.WithFields(logrus.Fields{
-		"request.id": snapshot.GetRespHeader(PxFile.Annotations.HTTPRequestIdHeader),
+		"request.id": snapshot.Headers[PxFile.Annotations.HTTPRequestIdHeader],
 		"duration":   duration.Nanoseconds(),
 		"url":        requestURL.String(),
 		"method":     method,

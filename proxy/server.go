@@ -48,7 +48,15 @@ func (xy *Server) registerRule(rule ProxyEndpointRule) {
 		}()
 
 		app.All(routerPath, func(c *fiber.Ctx) error {
-			defer func() { go xy.ReplayRequest(*c, xy.Proxyfile, path) }()
+			defer func() {
+				go xy.ReplayRequest(ReplayRequest{
+					RequestPath: c.Path(),
+					MatchedPath: path,
+					Method:      c.Method(),
+					Body:        c.Body(),
+					Headers:     c.GetReqHeaders(),
+				})
+			}()
 
 			response, err := xy.MakeHTTPRequest(c, path)
 			if err != nil {
